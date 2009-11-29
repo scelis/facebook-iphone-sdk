@@ -105,20 +105,38 @@ static NSString* kLoginURL = @"http://www.facebook.com/login.php";
 // FBRequestDelegate
 
 - (void)request:(FBRequest*)request didLoad:(id)result {
-  NSDictionary* object = result;
-  FBUID uid = [[object objectForKey:@"uid"] longLongValue];
-  NSString* sessionKey = [object objectForKey:@"session_key"];
-  NSString* sessionSecret = [object objectForKey:@"secret"];
-  NSTimeInterval expires = [[object objectForKey:@"expires"] floatValue];
-  NSDate* expiration = expires ? [NSDate dateWithTimeIntervalSince1970:expires] : nil;
-  
-  [_getSessionRequest release];
-  _getSessionRequest = nil;
+  if ([[request method] isEqualToString:@"facebook.auth.getSession"])
+  {
+    NSDictionary* object = result;
+    FBUID uid = [[object objectForKey:@"uid"] longLongValue];
+    NSString* sessionKey = [object objectForKey:@"session_key"];
+    NSString* sessionSecret = [object objectForKey:@"secret"];
+    NSTimeInterval expires = [[object objectForKey:@"expires"] floatValue];
+    NSDate* expiration = expires ? [NSDate dateWithTimeIntervalSince1970:expires] : nil;
+    
+    [_getSessionRequest release];
+    _getSessionRequest = nil;
 
-  [_session begin:uid sessionKey:sessionKey sessionSecret:sessionSecret expires:expiration];
-  [_session resume];
-  
-  [self dismissWithSuccess:YES animated:YES];
+    [_session begin:uid sessionKey:sessionKey sessionSecret:sessionSecret expires:expiration];
+    [_session resume];
+    
+    // Obtain the user's name.
+    NSString* fql = [NSString stringWithFormat:
+					   @"select uid,name from user where uid == %lld", uid];
+    NSDictionary* params = [NSDictionary dictionaryWithObject:fql forKey:@"query"];
+    [[FBRequest requestWithDelegate:self] call:@"facebook.fql.query" params:params];
+  }
+  else
+  {
+    NSArray *users = result;
+    NSDictionary *user = [users objectAtIndex:0];
+    NSString *name = [user objectForKey:@"name"];
+    NSLog(@"Currently logged into Facebook as: %@", name);
+    [[NSUserDefaults standardUserDefaults] setObject:name forKey:@"facebookUserName"];
+    [[NSNotificationCenter defaultCenter] postNotificationName:@"SCFacebookDidLogin" object:nil];
+    
+    [self dismissWithSuccess:YES animated:YES];
+  }
 }
 
 - (void)request:(FBRequest*)request didFailWithError:(NSError*)error {
